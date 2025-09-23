@@ -507,66 +507,166 @@ class EOXSTicketDragger {
                 return true;
             }
 
-            // Fallback: open the card and set stage to Tickets via form statusbar
+            // Fallback: open the card and set stage to Tickets via form statusbar or dropdown
             console.log('🛠️ Drag verification failed, trying fallback: open card and change stage to "Tickets"...');
             try {
-                const sourceInResolved = this.page.locator(`.o_kanban_group:has-text("Resolved") .o_kanban_record:has-text("${CONFIG.dragOperation.ticketTitle}")`).first();
-                await sourceInResolved.click();
+                // Find and click the ticket card
+                const sourceSelectors = [
+                    `.o_kanban_group:has-text("Resolved") .o_kanban_record:has-text("${CONFIG.dragOperation.ticketTitle}")`,
+                    `.o_kanban_record:has-text("${CONFIG.dragOperation.ticketTitle}")`
+                ];
+                
+                let cardClicked = false;
+                for (const sel of sourceSelectors) {
+                    try {
+                        const card = this.page.locator(sel).first();
+                        if (await card.isVisible({ timeout: 3000 })) {
+                            await card.click();
+                            cardClicked = true;
+                            console.log(`✅ Opened card via: ${sel}`);
+                            break;
+                        }
+                    } catch (e) { /* try next */ }
+                }
+                
+                if (!cardClicked) {
+                    console.log('⚠️ Could not open ticket card');
+                    return false;
+                }
+                
                 await this.page.waitForLoadState('networkidle');
-                await this.page.waitForTimeout(1000);
+                await this.page.waitForTimeout(2000);
 
-                // Possible selectors for statusbar and stage buttons
-                const stageSelectors = [
+                // Try multiple approaches to change stage
+                let stageChanged = false;
+
+                // Approach 1: Statusbar buttons
+                const statusbarSelectors = [
                     '.o_statusbar_status button:has-text("Tickets")',
                     '.o_statusbar_status .btn:has-text("Tickets")',
-                    'button:has-text("Tickets")',
-                    'span:has-text("Tickets")',
-                    'a:has-text("Tickets")'
+                    '.o_statusbar_buttons button:has-text("Tickets")',
+                    'button[data-value="tickets"]',
+                    'button[data-value="Tickets"]'
                 ];
 
-                let stageClicked = false;
-                for (const sel of stageSelectors) {
+                for (const sel of statusbarSelectors) {
                     try {
-                        const el = this.page.locator(sel).first();
-                        if (await el.isVisible({ timeout: 3000 })) {
-                            await el.click();
-                            stageClicked = true;
-                            console.log(`✅ Clicked stage control via: ${sel}`);
+                        const btn = this.page.locator(sel).first();
+                        if (await btn.isVisible({ timeout: 2000 })) {
+                            await btn.click();
+                            stageChanged = true;
+                            console.log(`✅ Changed stage via statusbar: ${sel}`);
                             break;
                         }
                     } catch (e) { /* try next */ }
                 }
 
-                // Try saving the form if Save button exists
-                const saveSelectors = ['button[name="action_save"]', 'button:has-text("Save")', '.o_form_button_save'];
-                for (const sel of saveSelectors) {
+                // Approach 2: Stage dropdown field
+                if (!stageChanged) {
+                    const stageFieldSelectors = [
+                        'select[name="stage_id"]',
+                        'select[name="stage"]',
+                        'div[name="stage_id"]',
+                        'div[name="stage"]',
+                        '.o_field_widget[name="stage_id"]',
+                        '.o_field_widget[name="stage"]'
+                    ];
+
+                    for (const sel of stageFieldSelectors) {
+                        try {
+                            const field = this.page.locator(sel).first();
+                            if (await field.isVisible({ timeout: 2000 })) {
+                                // If it's a select dropdown
+                                if (sel.includes('select')) {
+                                    await field.selectOption({ label: 'Tickets' });
+                                } else {
+                                    // If it's a div field, try clicking it to open dropdown
+                                    await field.click();
+                                    await this.page.waitForTimeout(500);
+                                    // Try to click "Tickets" option
+                                    const option = this.page.locator('li:has-text("Tickets"), .o_dropdown_item:has-text("Tickets")').first();
+                                    if (await option.isVisible({ timeout: 2000 })) {
+                                        await option.click();
+                                        stageChanged = true;
+                                        console.log(`✅ Changed stage via dropdown: ${sel}`);
+                                        break;
+                                    }
+                                }
+                            }
+                        } catch (e) { /* try next */ }
+                    }
+                }
+
+                // Approach 3: Generic "Tickets" button/link anywhere in form
+                if (!stageChanged) {
+                    const genericSelectors = [
+                        'button:has-text("Tickets")',
+                        'a:has-text("Tickets")',
+                        'span:has-text("Tickets")',
+                        '.badge:has-text("Tickets")'
+                    ];
+
+                    for (const sel of genericSelectors) {
+                        try {
+                            const el = this.page.locator(sel).first();
+                            if (await el.isVisible({ timeout: 2000 })) {
+                                await el.click();
+                                stageChanged = true;
+                                console.log(`✅ Changed stage via generic selector: ${sel}`);
+                                break;
+                            }
+                        } catch (e) { /* try next */ }
+                    }
+                }
+
+                if (stageChanged) {
+                    // Save the form
+                    const saveSelectors = [
+                        'button[name="action_save"]', 
+                        'button:has-text("Save")', 
+                        '.o_form_button_save',
+                        'button[type="submit"]'
+                    ];
+                    
+                    for (const sel of saveSelectors) {
+                        try {
+                            const btn = this.page.locator(sel).first();
+                            if (await btn.isVisible({ timeout: 2000 })) {
+                                await btn.click();
+                                console.log(`💾 Saved form using: ${sel}`);
+                                break;
+                            }
+                        } catch (e) { /* ignore */ }
+                    }
+
+                    await this.page.waitForLoadState('networkidle');
+                    await this.page.waitForTimeout(3000);
+
+                    // Navigate back to board to verify
                     try {
-                        const btn = this.page.locator(sel).first();
-                        if (await btn.isVisible({ timeout: 2000 })) {
-                            await btn.click();
-                            console.log(`💾 Saved form using: ${sel}`);
-                            break;
-                        }
-                    } catch (e) { /* ignore */ }
+                        await this.page.goBack();
+                        await this.page.waitForLoadState('networkidle');
+                        await this.page.waitForTimeout(2000);
+                    } catch (e) {
+                        // If goBack fails, try navigating to project again
+                        console.log('⚠️ Go back failed, trying to navigate back to board');
+                    }
+
+                    // Re-verify in Tickets column
+                    try {
+                        verifyInTickets = await this.page.locator(`.o_kanban_group:has-text("Tickets") .o_kanban_record:has-text("${CONFIG.dragOperation.ticketTitle}")`).first().isVisible({ timeout: 5000 });
+                    } catch (e) {
+                        verifyInTickets = false;
+                    }
+
+                    if (verifyInTickets) {
+                        console.log('✅ Fallback successful: ticket is now in Tickets section');
+                        this.dragSuccess = true;
+                        return true;
+                    }
                 }
 
-                await this.page.waitForLoadState('networkidle');
-                await this.page.waitForTimeout(2000);
-
-                // Re-verify in Tickets column
-                try {
-                    verifyInTickets = await this.page.locator(`.o_kanban_group:has-text("Tickets") .o_kanban_record:has-text("${CONFIG.dragOperation.ticketTitle}")`).first().isVisible({ timeout: 5000 });
-                } catch (e) {
-                    verifyInTickets = false;
-                }
-
-                if (verifyInTickets) {
-                    console.log('✅ Fallback successful: ticket is now in Tickets section');
-                    this.dragSuccess = true;
-                    return true;
-                }
-
-                console.log('⚠️ Fallback did not confirm move to Tickets');
+                console.log('⚠️ Fallback did not successfully move ticket to Tickets');
             } catch (fallbackError) {
                 console.log('⚠️ Fallback move failed:', fallbackError.message);
             }
