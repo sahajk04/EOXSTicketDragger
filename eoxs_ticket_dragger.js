@@ -540,13 +540,17 @@ class EOXSTicketDragger {
                 // Try multiple approaches to change stage
                 let stageChanged = false;
 
-                // Approach 1: Statusbar buttons
+                // Approach 1: Statusbar buttons (Odoo specific)
                 const statusbarSelectors = [
                     '.o_statusbar_status button:has-text("Tickets")',
                     '.o_statusbar_status .btn:has-text("Tickets")',
                     '.o_statusbar_buttons button:has-text("Tickets")',
+                    '.o_statusbar_status button[data-value*="ticket"]',
+                    '.o_statusbar_status button[data-value*="Ticket"]',
                     'button[data-value="tickets"]',
-                    'button[data-value="Tickets"]'
+                    'button[data-value="Tickets"]',
+                    // Try clicking any statusbar button that's not "Resolved"
+                    '.o_statusbar_status button:not([class*="btn-secondary"]):not(:has-text("Resolved"))'
                 ];
 
                 for (const sel of statusbarSelectors) {
@@ -669,6 +673,24 @@ class EOXSTicketDragger {
                 console.log('⚠️ Fallback did not successfully move ticket to Tickets');
             } catch (fallbackError) {
                 console.log('⚠️ Fallback move failed:', fallbackError.message);
+            }
+
+            // Final attempt: Force page refresh and check again
+            console.log('🔄 Final attempt: refreshing page and re-checking...');
+            try {
+                await this.page.reload({ waitUntil: 'networkidle' });
+                await this.page.waitForTimeout(3000);
+                
+                // One final check
+                const finalCheck = await this.page.locator(`.o_kanban_group:has-text("Tickets") .o_kanban_record:has-text("${CONFIG.dragOperation.ticketTitle}")`).first().isVisible({ timeout: 5000 }).catch(() => false);
+                
+                if (finalCheck) {
+                    console.log('✅ SUCCESS after refresh: ticket is now in Tickets section');
+                    this.dragSuccess = true;
+                    return true;
+                }
+            } catch (e) {
+                console.log('⚠️ Final refresh check failed');
             }
 
             console.log(`❌ FAILED: Could not move "${CONFIG.dragOperation.ticketTitle}" to Tickets section`);
