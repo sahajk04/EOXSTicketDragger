@@ -225,18 +225,21 @@ class EOXSTicketDragger {
         try {
             console.log('🧭 Navigating to Test Support project...');
             
-            await this.page.waitForTimeout(2000);
+            // Give the app time to settle and load menus fully
+            await this.page.waitForLoadState('networkidle');
+            await this.page.waitForTimeout(3000);
             
             // Click sidebar menu
-            const sidebarMenuSelectors = ['.o_menu_apps', '.o_menu_toggle', '.fa-th'];
+            const sidebarMenuSelectors = ['.o_menu_apps', '.o_menu_toggle', '.fa-th', 'button[title="Applications"]'];
             let sidebarOpened = false;
             for (const selector of sidebarMenuSelectors) {
                 try {
-                    if (await this.page.locator(selector).first().isVisible({ timeout: 3000 })) {
+                    if (await this.page.locator(selector).first().isVisible({ timeout: 5000 })) {
                         await this.clickElement(selector);
                         sidebarOpened = true;
                         console.log(`✅ Clicked sidebar menu: ${selector}`);
-                        await this.page.waitForTimeout(1000);
+                        await this.page.waitForLoadState('networkidle');
+                        await this.page.waitForTimeout(1500);
                         break;
                     }
                 } catch (error) {
@@ -249,14 +252,15 @@ class EOXSTicketDragger {
             }
             
             // Click Projects
-            const projectsSelectors = ['text=Projects', 'text=Project'];
+            const projectsSelectors = ['text=Projects', 'text=Project', 'a:has-text("Projects")', 'span:has-text("Projects")'];
             let projectsClicked = false;
             for (const selector of projectsSelectors) {
                 try {
-                    if (await this.page.locator(selector).first().isVisible({ timeout: 3000 })) {
+                    if (await this.page.locator(selector).first().isVisible({ timeout: 6000 })) {
                         await this.clickElement(selector);
                         projectsClicked = true;
                         console.log(`✅ Clicked Projects: ${selector}`);
+                        await this.page.waitForLoadState('networkidle');
                         break;
                     }
                 } catch (error) {
@@ -268,21 +272,24 @@ class EOXSTicketDragger {
                 throw new Error('Could not find Projects section');
             }
             
-            await this.page.waitForTimeout(2000);
+            await this.page.waitForTimeout(3000);
             
             // Click Test Support project
             const supportSelectors = [
                 '.o_kanban_record:has-text("Test Support")',
-                'text=Test Support'
+                'text=Test Support',
+                'div:has-text("Test Support")',
+                'a:has-text("Test Support")',
             ];
             
             let supportClicked = false;
             for (const selector of supportSelectors) {
                 try {
-                    if (await this.page.locator(selector).first().isVisible({ timeout: 3000 })) {
+                    if (await this.page.locator(selector).first().isVisible({ timeout: 8000 })) {
                         await this.clickElement(selector);
                         supportClicked = true;
                         console.log(`✅ Clicked Test Support: ${selector}`);
+                        await this.page.waitForLoadState('networkidle');
                         await this.page.waitForTimeout(3000);
                         break;
                     }
@@ -292,7 +299,17 @@ class EOXSTicketDragger {
             }
             
             if (!supportClicked) {
-                throw new Error('Could not find Test Support project');
+                // Final fallback: try searching with browser find or global text click
+                try {
+                    const anySupport = this.page.locator('text=Test Support').first();
+                    await anySupport.waitFor({ state: 'visible', timeout: 8000 });
+                    await anySupport.click();
+                    await this.page.waitForLoadState('networkidle');
+                    supportClicked = true;
+                    console.log('✅ Clicked Test Support via fallback');
+                } catch (e) {
+                    throw new Error('Could not find Test Support project');
+                }
             }
             
             console.log('✅ Successfully navigated to Test Support project');
@@ -480,31 +497,89 @@ class EOXSTicketDragger {
             
             // Wait for any UI updates
             await this.page.waitForTimeout(2000);
-            
+
             // Verify the drag was successful
             console.log('🔍 Verifying drag operation...');
+            let verifyInTickets = false;
             try {
-                // Check if the ticket is now in Tickets section
-                const verifyInTickets = await this.page.locator(`.o_kanban_group:has-text("Tickets") .o_kanban_record:has-text("${CONFIG.dragOperation.ticketTitle}")`).first().isVisible({ timeout: 3000 });
-                
-                if (verifyInTickets) {
-                    console.log(`✅ Verification successful: "${CONFIG.dragOperation.ticketTitle}" ticket is now in Tickets section`);
-                    this.dragSuccess = true;
-                } else {
-                    console.log('⚠️ Verification failed: Could not confirm ticket moved to Tickets section');
-                    // Still consider it successful if no error occurred during drag
-                }
+                verifyInTickets = await this.page.locator(`.o_kanban_group:has-text("Tickets") .o_kanban_record:has-text("${CONFIG.dragOperation.ticketTitle}")`).first().isVisible({ timeout: 4000 });
             } catch (error) {
-                console.log('⚠️ Could not verify drag operation, but no errors occurred');
+                verifyInTickets = false;
             }
-            
-            if (this.dragSuccess) {
-                console.log(`🎉 SUCCESS: "${CONFIG.dragOperation.ticketTitle}" ticket dragged from Resolved to Tickets section`);
+
+            if (verifyInTickets) {
+                console.log(`✅ Verification successful: "${CONFIG.dragOperation.ticketTitle}" ticket is now in Tickets section`);
+                this.dragSuccess = true;
                 return true;
-            } else {
-                console.log(`❌ FAILED: Could not drag "${CONFIG.dragOperation.ticketTitle}" ticket to Tickets section`);
-                return false;
             }
+
+            // Fallback: open the card and set stage to Tickets via form statusbar
+            console.log('🛠️ Drag verification failed, trying fallback: open card and change stage to "Tickets"...');
+            try {
+                const sourceInResolved = this.page.locator(`.o_kanban_group:has-text("Resolved") .o_kanban_record:has-text("${CONFIG.dragOperation.ticketTitle}")`).first();
+                await sourceInResolved.click();
+                await this.page.waitForLoadState('networkidle');
+                await this.page.waitForTimeout(1000);
+
+                // Possible selectors for statusbar and stage buttons
+                const stageSelectors = [
+                    '.o_statusbar_status button:has-text("Tickets")',
+                    '.o_statusbar_status .btn:has-text("Tickets")',
+                    'button:has-text("Tickets")',
+                    'span:has-text("Tickets")',
+                    'a:has-text("Tickets")'
+                ];
+
+                let stageClicked = false;
+                for (const sel of stageSelectors) {
+                    try {
+                        const el = this.page.locator(sel).first();
+                        if (await el.isVisible({ timeout: 3000 })) {
+                            await el.click();
+                            stageClicked = true;
+                            console.log(`✅ Clicked stage control via: ${sel}`);
+                            break;
+                        }
+                    } catch (e) { /* try next */ }
+                }
+
+                // Try saving the form if Save button exists
+                const saveSelectors = ['button[name="action_save"]', 'button:has-text("Save")', '.o_form_button_save'];
+                for (const sel of saveSelectors) {
+                    try {
+                        const btn = this.page.locator(sel).first();
+                        if (await btn.isVisible({ timeout: 2000 })) {
+                            await btn.click();
+                            console.log(`💾 Saved form using: ${sel}`);
+                            break;
+                        }
+                    } catch (e) { /* ignore */ }
+                }
+
+                await this.page.waitForLoadState('networkidle');
+                await this.page.waitForTimeout(2000);
+
+                // Re-verify in Tickets column
+                try {
+                    verifyInTickets = await this.page.locator(`.o_kanban_group:has-text("Tickets") .o_kanban_record:has-text("${CONFIG.dragOperation.ticketTitle}")`).first().isVisible({ timeout: 5000 });
+                } catch (e) {
+                    verifyInTickets = false;
+                }
+
+                if (verifyInTickets) {
+                    console.log('✅ Fallback successful: ticket is now in Tickets section');
+                    this.dragSuccess = true;
+                    return true;
+                }
+
+                console.log('⚠️ Fallback did not confirm move to Tickets');
+            } catch (fallbackError) {
+                console.log('⚠️ Fallback move failed:', fallbackError.message);
+            }
+
+            console.log(`❌ FAILED: Could not move "${CONFIG.dragOperation.ticketTitle}" to Tickets section`);
+            this.dragSuccess = false;
+            return false;
             
         } catch (error) {
             console.error('❌ Failed to drag ticket:', error);
