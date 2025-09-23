@@ -398,6 +398,11 @@ class EOXSTicketDragger {
             console.log('🚀 Performing drag and drop operation...');
             
             try {
+                // Ensure source and destination are in view
+                await sourceTicket.scrollIntoViewIfNeeded();
+                await destinationSection.scrollIntoViewIfNeeded();
+                await this.page.waitForTimeout(300);
+
                 // Method 1: Use Playwright's dragTo method
                 console.log('🎯 Attempting drag using dragTo method...');
                 await sourceTicket.dragTo(destinationSection);
@@ -408,10 +413,9 @@ class EOXSTicketDragger {
                 console.log('⚠️ dragTo method failed, trying manual drag...');
                 
                 try {
-                    // Method 2: Manual drag with mouse events
+                    // Method 2: Manual drag with mouse events (drag from header area)
                     console.log('🎯 Attempting manual drag with mouse events...');
                     
-                    // Get bounding boxes
                     const sourceBox = await sourceTicket.boundingBox();
                     const destBox = await destinationSection.boundingBox();
                     
@@ -419,21 +423,23 @@ class EOXSTicketDragger {
                         throw new Error('Could not get bounding boxes for drag operation');
                     }
                     
-                    // Calculate center points
+                    // Drag from near top-center of the card (header area)
                     const sourceX = sourceBox.x + sourceBox.width / 2;
-                    const sourceY = sourceBox.y + sourceBox.height / 2;
+                    const sourceY = sourceBox.y + Math.min(20, sourceBox.height / 4);
                     const destX = destBox.x + destBox.width / 2;
                     const destY = destBox.y + destBox.height / 2;
                     
                     console.log(`📍 Source position: (${sourceX}, ${sourceY})`);
                     console.log(`📍 Destination position: (${destX}, ${destY})`);
                     
-                    // Perform drag operation
                     await this.page.mouse.move(sourceX, sourceY);
                     await this.page.mouse.down();
-                    await this.page.waitForTimeout(500); // Small pause
-                    await this.page.mouse.move(destX, destY, { steps: 10 });
-                    await this.page.waitForTimeout(500); // Pause before drop
+                    await this.page.waitForTimeout(300);
+                    // Small wiggle to initiate drag in some UIs
+                    await this.page.mouse.move(sourceX + 5, sourceY + 5);
+                    await this.page.waitForTimeout(150);
+                    await this.page.mouse.move(destX, destY, { steps: 15 });
+                    await this.page.waitForTimeout(300);
                     await this.page.mouse.up();
                     
                     console.log('✅ Manual drag operation completed');
@@ -443,41 +449,29 @@ class EOXSTicketDragger {
                     console.log('⚠️ Manual drag failed, trying HTML5 drag...');
                     
                     try {
-                        // Method 3: HTML5 drag and drop
+                        // Method 3: HTML5 drag and drop using dynamic title selectors
                         console.log('🎯 Attempting HTML5 drag and drop...');
+                        const dynamicSource = `.o_kanban_record:has-text("${CONFIG.dragOperation.ticketTitle}")`;
+                        const dynamicDest = `.o_kanban_group:has-text("Tickets")`;
                         
-                        await this.page.evaluate((sourceSelector, destSelector) => {
-                            const source = document.querySelector(sourceSelector);
-                            const dest = document.querySelector(destSelector);
-                            
+                        await this.page.evaluate(({ sourceSel, destSel }) => {
+                            const source = document.querySelector(sourceSel);
+                            const dest = document.querySelector(destSel);
                             if (!source || !dest) {
                                 throw new Error('Source or destination not found for HTML5 drag');
                             }
+                            source.scrollIntoView({ block: 'center' });
+                            dest.scrollIntoView({ block: 'center' });
                             
-                            // Create drag event
-                            const dragStartEvent = new DragEvent('dragstart', {
-                                bubbles: true,
-                                cancelable: true,
-                                dataTransfer: new DataTransfer()
-                            });
+                            const dataTransfer = new DataTransfer();
+                            const dragStartEvent = new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer });
+                            const dropEvent = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer });
+                            const dragEndEvent = new DragEvent('dragend', { bubbles: true, cancelable: true });
                             
-                            const dropEvent = new DragEvent('drop', {
-                                bubbles: true,
-                                cancelable: true,
-                                dataTransfer: dragStartEvent.dataTransfer
-                            });
-                            
-                            const dragEndEvent = new DragEvent('dragend', {
-                                bubbles: true,
-                                cancelable: true
-                            });
-                            
-                            // Dispatch events
                             source.dispatchEvent(dragStartEvent);
                             dest.dispatchEvent(dropEvent);
                             source.dispatchEvent(dragEndEvent);
-                            
-                        }, '.o_kanban_record:has-text("Testing")', '.o_kanban_group:has-text("Tickets")');
+                        }, { sourceSel: dynamicSource, destSel: dynamicDest });
                         
                         console.log('✅ HTML5 drag operation completed');
                         this.dragSuccess = true;
@@ -491,7 +485,7 @@ class EOXSTicketDragger {
             
             // Wait for any UI updates
             await this.page.waitForTimeout(2000);
-
+            
             // Verify the drag was successful
             console.log('🔍 Verifying drag operation...');
             let verifyInTickets = false;
@@ -500,10 +494,10 @@ class EOXSTicketDragger {
             } catch (error) {
                 verifyInTickets = false;
             }
-
-            if (verifyInTickets) {
-                console.log(`✅ Verification successful: "${CONFIG.dragOperation.ticketTitle}" ticket is now in Tickets section`);
-                this.dragSuccess = true;
+                
+                if (verifyInTickets) {
+                    console.log(`✅ Verification successful: "${CONFIG.dragOperation.ticketTitle}" ticket is now in Tickets section`);
+                    this.dragSuccess = true;
                 return true;
             }
 
@@ -583,7 +577,7 @@ class EOXSTicketDragger {
                                 // If it's a select dropdown
                                 if (sel.includes('select')) {
                                     await field.selectOption({ label: 'Tickets' });
-                                } else {
+                } else {
                                     // If it's a div field, try clicking it to open dropdown
                                     await field.click();
                                     await this.page.waitForTimeout(500);
@@ -687,7 +681,7 @@ class EOXSTicketDragger {
                 if (finalCheck) {
                     console.log('✅ SUCCESS after refresh: ticket is now in Tickets section');
                     this.dragSuccess = true;
-                    return true;
+                return true;
                 }
             } catch (e) {
                 console.log('⚠️ Final refresh check failed');
