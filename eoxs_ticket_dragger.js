@@ -15,6 +15,7 @@ const path = require('path');
 // Configuration
 const CONFIG = {
     baseUrl: 'https://teams.eoxs.com/',
+    projectUrl: process.env.PROJECT_URL || '',
     credentials: {
         email: process.env.EOXS_EMAIL || 'sahajkatiyareoxs@gmail.com',
         password: process.env.EOXS_PASSWORD || 'Eoxs12345!'
@@ -228,6 +229,40 @@ class EOXSTicketDragger {
             // Give the app time to settle and load menus fully
             await this.page.waitForLoadState('networkidle');
             await this.page.waitForTimeout(3000);
+
+            // If a direct board URL is provided, prefer it
+            if (CONFIG.projectUrl) {
+                try {
+                    console.log('🔗 Opening project URL from env PROJECT_URL');
+                    await this.page.goto(CONFIG.projectUrl, {
+                        waitUntil: 'networkidle',
+                        timeout: CONFIG.waitOptions.navigationTimeout
+                    });
+                    await this.page.waitForTimeout(1500);
+                    // Verify board columns exist
+                    const hasColumns = await this.page.locator('.o_kanban_group:has-text("Resolved"), .o_kanban_group:has-text("Tickets")').first().isVisible({ timeout: 5000 }).catch(() => false);
+                    if (hasColumns) {
+                        console.log('✅ Opened board via PROJECT_URL');
+                        return true;
+                    }
+                    console.log('⚠️ PROJECT_URL did not show expected columns, falling back to UI navigation');
+                } catch (e) {
+                    console.log('⚠️ Failed to open PROJECT_URL, falling back to UI navigation');
+                }
+            }
+
+            // Fast path: if "Test Support" is visible anywhere, click it directly
+            try {
+                const quickSupport = this.page.locator('text=Test Support').first();
+                await quickSupport.waitFor({ state: 'visible', timeout: 3000 });
+                await quickSupport.click();
+                await this.page.waitForLoadState('networkidle');
+                await this.page.waitForTimeout(1500);
+                console.log('✅ Opened Test Support directly from landing page');
+                return true;
+            } catch (e) {
+                // continue to menu-driven navigation
+            }
             
             // Click sidebar menu
             const sidebarMenuSelectors = ['.o_menu_apps', '.o_menu_toggle', '.fa-th', 'button[title="Applications"]'];
@@ -274,9 +309,10 @@ class EOXSTicketDragger {
             
             await this.page.waitForTimeout(3000);
             
-            // Click Test Support project
+            // Click Test Support project card (prefer its "Tasks" link inside the card)
             const supportSelectors = [
                 '.o_kanban_record:has-text("Test Support")',
+                '.o_kanban_record:has-text("Test Support") a:has-text("Tasks")',
                 'text=Test Support',
                 'div:has-text("Test Support")',
                 'a:has-text("Test Support")',
@@ -286,7 +322,23 @@ class EOXSTicketDragger {
             for (const selector of supportSelectors) {
                 try {
                     if (await this.page.locator(selector).first().isVisible({ timeout: 8000 })) {
-                        await this.clickElement(selector);
+                        // If selector targets the card, try its Tasks link first
+                        if (selector.includes('.o_kanban_record')) {
+                            const card = this.page.locator(selector).first();
+                            // Try click Tasks link inside card
+                            try {
+                                const tasksLink = card.locator('a:has-text("Tasks"), a:has-text("Task")').first();
+                                if (await tasksLink.isVisible({ timeout: 1000 })) {
+                                    await tasksLink.click();
+                                } else {
+                                    await card.click();
+                                }
+                            } catch {
+                                await card.click();
+                            }
+                        } else {
+                            await this.clickElement(selector);
+                        }
                         supportClicked = true;
                         console.log(`✅ Clicked Test Support: ${selector}`);
                         await this.page.waitForLoadState('networkidle');
@@ -299,12 +351,20 @@ class EOXSTicketDragger {
             }
             
             if (!supportClicked) {
-                // Final fallback: try searching with browser find or global text click
+                // Final fallback: try searching with global text click and then open Tasks
                 try {
                     const anySupport = this.page.locator('text=Test Support').first();
                     await anySupport.waitFor({ state: 'visible', timeout: 8000 });
                     await anySupport.click();
                     await this.page.waitForLoadState('networkidle');
+                    // If a "Tasks" link is visible after opening, click it
+                    try {
+                        const tasksLink = this.page.locator('a:has-text("Tasks")').first();
+                        if (await tasksLink.isVisible({ timeout: 2000 })) {
+                            await tasksLink.click();
+                            await this.page.waitForLoadState('networkidle');
+                        }
+                    } catch {}
                     supportClicked = true;
                     console.log('✅ Clicked Test Support via fallback');
                 } catch (e) {
