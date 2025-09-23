@@ -30,7 +30,8 @@ const CONFIG = {
         navigationTimeout: 30000
     },
     browser: {
-        headless: false, // Set to true for headless mode
+        // Respect HEADLESS env var; default to true for server environments like Railway/Docker
+        headless: String(process.env.HEADLESS || 'true').toLowerCase() === 'true',
         slowMo: 150, // Slower for drag operations
     }
 };
