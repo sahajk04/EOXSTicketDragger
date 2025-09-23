@@ -31,9 +31,8 @@ const CONFIG = {
         navigationTimeout: 30000
     },
     browser: {
-        // Respect HEADLESS env var; default to true for server environments like Railway/Docker
-        headless: String(process.env.HEADLESS || 'true').toLowerCase() === 'true',
-        slowMo: 150, // Slower for drag operations
+        headless: process.env.HEADLESS === 'true' || process.env.NODE_ENV === 'production', // Run headless in production or when HEADLESS=true
+        slowMo: 100, // Add delay between actions for better reliability
     }
 };
 
@@ -52,7 +51,7 @@ class EOXSTicketDragger {
             // Launch browser
             this.browser = await chromium.launch({
                 headless: CONFIG.browser.headless,
-                slowMo: CONFIG.browser.slowMo,
+                slowMo: CONFIG.browser.headless ? 0 : CONFIG.browser.slowMo, // No delay in headless mode
                 args: [
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
@@ -60,14 +59,25 @@ class EOXSTicketDragger {
                     '--disable-accelerated-2d-canvas',
                     '--no-first-run',
                     '--disable-gpu',
-                    '--start-maximized'
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor',
+                    '--disable-extensions',
+                    '--disable-plugins',
+                    '--disable-images', // Faster loading in headless mode
+                    ...(CONFIG.browser.headless ? ['--headless=new'] : ['--start-maximized'])
                 ]
             });
 
             // Create browser context
             this.context = await this.browser.newContext({
-                viewport: null,
-                userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                viewport: CONFIG.browser.headless ? { width: 1920, height: 1080 } : null,
+                userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                ignoreHTTPSErrors: true,
+                ...(CONFIG.browser.headless && {
+                    // Optimize for headless mode
+                    reducedMotion: 'reduce',
+                    forcedColors: 'none'
+                })
             });
 
             this.page = await this.context.newPage();
@@ -226,55 +236,18 @@ class EOXSTicketDragger {
         try {
             console.log('🧭 Navigating to Test Support project...');
             
-            // Give the app time to settle and load menus fully
-            await this.page.waitForLoadState('networkidle');
-            await this.page.waitForTimeout(3000);
-
-            // If a direct board URL is provided, prefer it
-            if (CONFIG.projectUrl) {
-                try {
-                    console.log('🔗 Opening project URL from env PROJECT_URL');
-                    await this.page.goto(CONFIG.projectUrl, {
-                        waitUntil: 'networkidle',
-                        timeout: CONFIG.waitOptions.navigationTimeout
-                    });
-                    await this.page.waitForTimeout(1500);
-                    // Verify board columns exist
-                    const hasColumns = await this.page.locator('.o_kanban_group:has-text("Resolved"), .o_kanban_group:has-text("Tickets")').first().isVisible({ timeout: 5000 }).catch(() => false);
-                    if (hasColumns) {
-                        console.log('✅ Opened board via PROJECT_URL');
-                        return true;
-                    }
-                    console.log('⚠️ PROJECT_URL did not show expected columns, falling back to UI navigation');
-                } catch (e) {
-                    console.log('⚠️ Failed to open PROJECT_URL, falling back to UI navigation');
-                }
-            }
-
-            // Fast path: if "Test Support" is visible anywhere, click it directly
-            try {
-                const quickSupport = this.page.locator('text=Test Support').first();
-                await quickSupport.waitFor({ state: 'visible', timeout: 3000 });
-                await quickSupport.click();
-                await this.page.waitForLoadState('networkidle');
-                await this.page.waitForTimeout(1500);
-                console.log('✅ Opened Test Support directly from landing page');
-                return true;
-            } catch (e) {
-                // continue to menu-driven navigation
-            }
+            await this.page.waitForTimeout(2000);
             
-            // Click sidebar menu
-            const sidebarMenuSelectors = ['.o_menu_apps', '.o_menu_toggle', '.fa-th', 'button[title="Applications"]'];
+            // Click sidebar menu (same logic as checker script)
+            const sidebarMenuSelectors = ['.o_menu_apps', '.o_menu_toggle', '.fa-th'];
             let sidebarOpened = false;
             for (const selector of sidebarMenuSelectors) {
                 try {
-                    if (await this.page.locator(selector).first().isVisible({ timeout: 5000 })) {
+                    if (await this.page.locator(selector).first().isVisible({ timeout: 3000 })) {
                         await this.clickElement(selector);
                         sidebarOpened = true;
                         console.log(`✅ Clicked sidebar menu: ${selector}`);
-                        await this.page.waitForLoadState('networkidle');
-                        await this.page.waitForTimeout(1500);
+                        await this.page.waitForTimeout(1000);
                         break;
                     }
                 } catch (error) {
@@ -286,16 +259,15 @@ class EOXSTicketDragger {
                 throw new Error('Could not open sidebar menu');
             }
             
-            // Click Projects
-            const projectsSelectors = ['text=Projects', 'text=Project', 'a:has-text("Projects")', 'span:has-text("Projects")'];
+            // Click Projects (same logic as checker script)
+            const projectsSelectors = ['text=Projects', 'text=Project'];
             let projectsClicked = false;
             for (const selector of projectsSelectors) {
                 try {
-                    if (await this.page.locator(selector).first().isVisible({ timeout: 6000 })) {
+                    if (await this.page.locator(selector).first().isVisible({ timeout: 3000 })) {
                         await this.clickElement(selector);
                         projectsClicked = true;
                         console.log(`✅ Clicked Projects: ${selector}`);
-                        await this.page.waitForLoadState('networkidle');
                         break;
                     }
                 } catch (error) {
@@ -307,41 +279,21 @@ class EOXSTicketDragger {
                 throw new Error('Could not find Projects section');
             }
             
-            await this.page.waitForTimeout(3000);
+            await this.page.waitForTimeout(2000);
             
-            // Click Test Support project card (prefer its "Tasks" link inside the card)
+            // Click Test Support project (same as checker script)
             const supportSelectors = [
                 '.o_kanban_record:has-text("Test Support")',
-                '.o_kanban_record:has-text("Test Support") a:has-text("Tasks")',
-                'text=Test Support',
-                'div:has-text("Test Support")',
-                'a:has-text("Test Support")',
+                'text=Test Support'
             ];
             
             let supportClicked = false;
             for (const selector of supportSelectors) {
                 try {
-                    if (await this.page.locator(selector).first().isVisible({ timeout: 8000 })) {
-                        // If selector targets the card, try its Tasks link first
-                        if (selector.includes('.o_kanban_record')) {
-                            const card = this.page.locator(selector).first();
-                            // Try click Tasks link inside card
-                            try {
-                                const tasksLink = card.locator('a:has-text("Tasks"), a:has-text("Task")').first();
-                                if (await tasksLink.isVisible({ timeout: 1000 })) {
-                                    await tasksLink.click();
-                                } else {
-                                    await card.click();
-                                }
-                            } catch {
-                                await card.click();
-                            }
-                        } else {
-                            await this.clickElement(selector);
-                        }
+                    if (await this.page.locator(selector).first().isVisible({ timeout: 3000 })) {
+                        await this.clickElement(selector);
                         supportClicked = true;
                         console.log(`✅ Clicked Test Support: ${selector}`);
-                        await this.page.waitForLoadState('networkidle');
                         await this.page.waitForTimeout(3000);
                         break;
                     }
@@ -351,25 +303,7 @@ class EOXSTicketDragger {
             }
             
             if (!supportClicked) {
-                // Final fallback: try searching with global text click and then open Tasks
-                try {
-                    const anySupport = this.page.locator('text=Test Support').first();
-                    await anySupport.waitFor({ state: 'visible', timeout: 8000 });
-                    await anySupport.click();
-                    await this.page.waitForLoadState('networkidle');
-                    // If a "Tasks" link is visible after opening, click it
-                    try {
-                        const tasksLink = this.page.locator('a:has-text("Tasks")').first();
-                        if (await tasksLink.isVisible({ timeout: 2000 })) {
-                            await tasksLink.click();
-                            await this.page.waitForLoadState('networkidle');
-                        }
-                    } catch {}
-                    supportClicked = true;
-                    console.log('✅ Clicked Test Support via fallback');
-                } catch (e) {
-                    throw new Error('Could not find Test Support project');
-                }
+                throw new Error('Could not find Test Support project');
             }
             
             console.log('✅ Successfully navigated to Test Support project');
