@@ -1,0 +1,29 @@
+{
+  "name": "eoxs-ticket-dragger",
+  "version": "1.0.0",
+  "description": "Automated ticket dragging system for EOXS using Playwright",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "test": "node eoxs_ticket_dragger.js 'Test Email Subject'",
+    "install-browsers": "npx playwright install chromium",
+    "build": "npm install && npx playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "1.44.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2"
+  },
+  "devDependencies": {
+    "@types/node": "^20.8.0"
+  },
+  "keywords": [
+    "automation",
+    "playwright",
+    "eoxs",
+    "ticket-management"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}
