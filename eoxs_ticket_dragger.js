@@ -31,7 +31,7 @@ const CONFIG = {
         navigationTimeout: 60000 // Increased for Railway
     },
     browser: {
-        headless: process.env.HEADLESS === 'true' || process.env.NODE_ENV === 'production', // Run headless in production or when HEADLESS=true
+        headless: process.env.HEADLESS === 'true', // Only headless if explicitly set to true
         slowMo: 100, // Add delay between actions for better reliability
     }
 };
