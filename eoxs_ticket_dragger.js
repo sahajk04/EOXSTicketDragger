@@ -27,8 +27,8 @@ const CONFIG = {
         toSection: 'Tickets'
     },
     waitOptions: {
-        timeout: 60000,
-        navigationTimeout: 30000
+        timeout: 120000, // Increased for Railway
+        navigationTimeout: 60000 // Increased for Railway
     },
     browser: {
         headless: process.env.HEADLESS === 'true' || process.env.NODE_ENV === 'production', // Run headless in production or when HEADLESS=true
@@ -236,18 +236,42 @@ class EOXSTicketDragger {
         try {
             console.log('🧭 Navigating to Test Support project...');
             
-            await this.page.waitForTimeout(2000);
+            // If PROJECT_URL is provided, use it directly (Railway optimization)
+            if (CONFIG.projectUrl) {
+                try {
+                    console.log('🔗 Using PROJECT_URL for direct navigation');
+                    await this.page.goto(CONFIG.projectUrl, {
+                        waitUntil: 'networkidle',
+                        timeout: CONFIG.waitOptions.navigationTimeout
+                    });
+                    await this.page.waitForTimeout(3000);
+                    
+                    // Verify we're on the kanban board by checking for columns
+                    const hasColumns = await this.page.locator('.o_kanban_group:has-text("Resolved"), .o_kanban_group:has-text("Tickets")').first().isVisible({ timeout: 10000 }).catch(() => false);
+                    if (hasColumns) {
+                        console.log('✅ Successfully opened kanban board via PROJECT_URL');
+                        return true;
+                    } else {
+                        console.log('⚠️ PROJECT_URL did not show expected columns, falling back to UI navigation');
+                    }
+                } catch (e) {
+                    console.log('⚠️ PROJECT_URL failed, falling back to UI navigation:', e.message);
+                }
+            }
             
-            // Click sidebar menu (same logic as checker script)
+            // Fallback to UI navigation with increased timeouts for Railway
+            await this.page.waitForTimeout(3000);
+            
+            // Click sidebar menu with longer timeouts
             const sidebarMenuSelectors = ['.o_menu_apps', '.o_menu_toggle', '.fa-th'];
             let sidebarOpened = false;
             for (const selector of sidebarMenuSelectors) {
                 try {
-                    if (await this.page.locator(selector).first().isVisible({ timeout: 3000 })) {
+                    if (await this.page.locator(selector).first().isVisible({ timeout: 8000 })) {
                         await this.clickElement(selector);
                         sidebarOpened = true;
                         console.log(`✅ Clicked sidebar menu: ${selector}`);
-                        await this.page.waitForTimeout(1000);
+                        await this.page.waitForTimeout(2000);
                         break;
                     }
                 } catch (error) {
@@ -259,15 +283,16 @@ class EOXSTicketDragger {
                 throw new Error('Could not open sidebar menu');
             }
             
-            // Click Projects (same logic as checker script)
+            // Click Projects with longer timeouts
             const projectsSelectors = ['text=Projects', 'text=Project'];
             let projectsClicked = false;
             for (const selector of projectsSelectors) {
                 try {
-                    if (await this.page.locator(selector).first().isVisible({ timeout: 3000 })) {
+                    if (await this.page.locator(selector).first().isVisible({ timeout: 8000 })) {
                         await this.clickElement(selector);
                         projectsClicked = true;
                         console.log(`✅ Clicked Projects: ${selector}`);
+                        await this.page.waitForLoadState('networkidle');
                         break;
                     }
                 } catch (error) {
@@ -279,9 +304,9 @@ class EOXSTicketDragger {
                 throw new Error('Could not find Projects section');
             }
             
-            await this.page.waitForTimeout(2000);
+            await this.page.waitForTimeout(3000);
             
-            // Click Test Support project (same as checker script)
+            // Click Test Support project with longer timeouts
             const supportSelectors = [
                 '.o_kanban_record:has-text("Test Support")',
                 'text=Test Support'
@@ -290,10 +315,11 @@ class EOXSTicketDragger {
             let supportClicked = false;
             for (const selector of supportSelectors) {
                 try {
-                    if (await this.page.locator(selector).first().isVisible({ timeout: 3000 })) {
+                    if (await this.page.locator(selector).first().isVisible({ timeout: 10000 })) {
                         await this.clickElement(selector);
                         supportClicked = true;
                         console.log(`✅ Clicked Test Support: ${selector}`);
+                        await this.page.waitForLoadState('networkidle');
                         await this.page.waitForTimeout(3000);
                         break;
                     }
