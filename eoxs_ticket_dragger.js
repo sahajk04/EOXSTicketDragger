@@ -476,16 +476,23 @@ class EOXSTicketDragger {
 
     async dragTicketToTicketsSection() {
         try {
-            console.log('🎯 Starting drag operation: "Testing" from Resolved to Tickets...');
+            console.log(`🎯 Starting drag operation: "${CONFIG.dragOperation.ticketTitle}" from Resolved to Tickets...`);
             
             // Wait for page to load completely
             await this.page.waitForTimeout(3000);
             
             // Find the specified ticket in Resolved section
             console.log(`🔍 Looking for "${CONFIG.dragOperation.ticketTitle}" ticket in Resolved section...`);
+            
+            // Try multiple approaches to find the ticket
             const sourceTicketSelectors = [
                 `.o_kanban_group:has-text("Resolved") .o_kanban_record:has-text("${CONFIG.dragOperation.ticketTitle}")`,
-                `.o_kanban_record:has-text("${CONFIG.dragOperation.ticketTitle}")`
+                `.o_kanban_record:has-text("${CONFIG.dragOperation.ticketTitle}")`,
+                // Try with partial text matching
+                `.o_kanban_group:has-text("Resolved") .o_kanban_record:has-text("CUSTOM TITLE TEST")`,
+                `.o_kanban_record:has-text("CUSTOM TITLE TEST")`,
+                `.o_kanban_group:has-text("Resolved") .o_kanban_record:has-text("Dynamic Environment")`,
+                `.o_kanban_record:has-text("Dynamic Environment")`
             ];
             
             let sourceTicket = null;
@@ -558,12 +565,14 @@ class EOXSTicketDragger {
             
             // Open the ticket card directly
             try {
+                console.log('🖱️ Clicking on ticket card...');
                 await sourceTicket.click();
                 await this.page.waitForLoadState('networkidle');
                 await this.page.waitForTimeout(2000);
                 console.log('✅ Opened ticket card for stage change');
                 
                 // Try to change stage via form
+                console.log('🔧 Attempting form-based stage change...');
                 const stageChanged = await this.changeTicketStage();
                 if (stageChanged) {
                     console.log('✅ Stage changed successfully via form');
@@ -574,7 +583,8 @@ class EOXSTicketDragger {
                     await this.performDragOperation(sourceTicket, destinationSection);
                 }
             } catch (error) {
-                console.log('⚠️ Card click failed, trying drag operation...');
+                console.log('⚠️ Card click failed:', error.message);
+                console.log('🔄 Trying drag operation as fallback...');
                 await this.performDragOperation(sourceTicket, destinationSection);
             }
             
