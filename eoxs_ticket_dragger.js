@@ -570,12 +570,12 @@ class EOXSTicketDragger {
             console.log('🚀 Headless mode detected - using form-based stage change instead of drag...');
             
             // Open the ticket card directly
-            try {
-                console.log('🖱️ Clicking on ticket card...');
-                await sourceTicket.click();
-                await this.page.waitForLoadState('networkidle');
-                await this.page.waitForTimeout(2000);
-                console.log('✅ Opened ticket card for stage change');
+                try {
+                    console.log('🖱️ Clicking on ticket card...');
+                    await sourceTicket.click();
+                    await this.page.waitForLoadState('domcontentloaded', { timeout: 10000 });
+                    await this.page.waitForTimeout(3000);
+                    console.log('✅ Opened ticket card for stage change');
                 
                 // Try to change stage via form
                 console.log('🔧 Attempting form-based stage change...');
@@ -748,13 +748,13 @@ class EOXSTicketDragger {
                         } catch (e) { /* ignore */ }
                     }
 
-                    await this.page.waitForLoadState('networkidle');
+                    await this.page.waitForLoadState('domcontentloaded', { timeout: 10000 });
                     await this.page.waitForTimeout(3000);
 
                     // Navigate back to board to verify
                     try {
                         await this.page.goBack();
-                        await this.page.waitForLoadState('networkidle');
+                        await this.page.waitForLoadState('domcontentloaded', { timeout: 10000 });
                         await this.page.waitForTimeout(2000);
                     } catch (e) {
                         // If goBack fails, try navigating to project again
