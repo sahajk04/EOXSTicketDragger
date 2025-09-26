@@ -42,6 +42,12 @@ class EOXSTicketDragger {
         this.context = null;
         this.page = null;
         this.dragSuccess = false;
+        
+        // Update the ticket title from environment if available
+        if (process.env.EMAIL_SUBJECT) {
+            CONFIG.dragOperation.ticketTitle = process.env.EMAIL_SUBJECT;
+            console.log(`📝 Updated ticket title from environment: "${CONFIG.dragOperation.ticketTitle}"`);
+        }
     }
 
     async init() {
@@ -846,7 +852,7 @@ class EOXSTicketDragger {
                     if (finalVerify) {
                         console.log('✅ ULTIMATE FALLBACK SUCCESS: Ticket moved to Tickets');
                         this.dragSuccess = true;
-                        return true;
+                return true;
                     }
                 }
             } catch (e) {
