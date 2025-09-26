@@ -345,36 +345,76 @@ class EOXSTicketDragger {
         try {
             console.log('🔧 Attempting to change ticket stage via form...');
             
-            // Look for stage/status controls in the form
+            // Wait for form to load
+            await this.page.waitForTimeout(2000);
+            
+            // Look for stage/status controls in the form with more comprehensive selectors
             const stageSelectors = [
                 'select[name="stage_id"]',
                 'select[name="stage"]',
+                'select[name="kanban_state"]',
                 'div[name="stage_id"]',
                 'div[name="stage"]',
+                'div[name="kanban_state"]',
                 '.o_field_widget[name="stage_id"]',
-                '.o_field_widget[name="stage"]'
+                '.o_field_widget[name="stage"]',
+                '.o_field_widget[name="kanban_state"]',
+                '.o_statusbar_status select',
+                '.o_statusbar_status div[name*="stage"]',
+                '.o_statusbar_status div[name*="state"]'
             ];
             
             for (const selector of stageSelectors) {
                 try {
                     const field = this.page.locator(selector).first();
-                    if (await field.isVisible({ timeout: 3000 })) {
+                    if (await field.isVisible({ timeout: 2000 })) {
                         console.log(`✅ Found stage field: ${selector}`);
                         
                         // If it's a select dropdown
                         if (selector.includes('select')) {
-                            await field.selectOption({ label: 'Tickets' });
-                            console.log('✅ Selected "Tickets" from dropdown');
+                            // Try different option selection methods
+                            try {
+                                await field.selectOption({ label: 'Tickets' });
+                                console.log('✅ Selected "Tickets" from dropdown by label');
+                            } catch (e1) {
+                                try {
+                                    await field.selectOption({ index: 1 }); // Try second option
+                                    console.log('✅ Selected option by index');
+                                } catch (e2) {
+                                    // Try clicking the select to open it first
+                                    await field.click();
+                                    await this.page.waitForTimeout(500);
+                                    const option = this.page.locator('option:has-text("Tickets"), option:has-text("Open"), option:has-text("New")').first();
+                                    if (await option.isVisible({ timeout: 2000 })) {
+                                        await option.click();
+                                        console.log('✅ Clicked option after opening select');
+                                    }
+                                }
+                            }
                         } else {
                             // If it's a div field, try clicking it to open dropdown
                             await field.click();
                             await this.page.waitForTimeout(500);
                             
-                            // Try to click "Tickets" option
-                            const option = this.page.locator('li:has-text("Tickets"), .o_dropdown_item:has-text("Tickets")').first();
-                            if (await option.isVisible({ timeout: 2000 })) {
-                                await option.click();
-                                console.log('✅ Clicked "Tickets" option');
+                            // Try to click "Tickets" option with multiple selectors
+                            const optionSelectors = [
+                                'li:has-text("Tickets")',
+                                '.o_dropdown_item:has-text("Tickets")',
+                                'option:has-text("Tickets")',
+                                'li:has-text("Open")',
+                                '.o_dropdown_item:has-text("Open")',
+                                'option:has-text("Open")'
+                            ];
+                            
+                            for (const optSel of optionSelectors) {
+                                try {
+                                    const option = this.page.locator(optSel).first();
+                                    if (await option.isVisible({ timeout: 1000 })) {
+                                        await option.click();
+                                        console.log(`✅ Clicked option using: ${optSel}`);
+                                        break;
+                                    }
+                                } catch (e) { /* try next */ }
                             }
                         }
                         
@@ -383,7 +423,9 @@ class EOXSTicketDragger {
                             'button[name="action_save"]', 
                             'button:has-text("Save")', 
                             '.o_form_button_save',
-                            'button[type="submit"]'
+                            'button[type="submit"]',
+                            '.o_form_button_edit',
+                            'button:has-text("Edit")'
                         ];
                         
                         for (const saveSel of saveSelectors) {
@@ -398,12 +440,13 @@ class EOXSTicketDragger {
                         }
                         
                         await this.page.waitForLoadState('networkidle');
-                        await this.page.waitForTimeout(2000);
+                        await this.page.waitForTimeout(3000);
                         return true;
                     }
                 } catch (e) { /* try next */ }
             }
             
+            console.log('⚠️ No stage field found');
             return false;
         } catch (error) {
             console.log('⚠️ Stage change failed:', error.message);
