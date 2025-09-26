@@ -341,6 +341,96 @@ class EOXSTicketDragger {
         }
     }
 
+    async changeTicketStage() {
+        try {
+            console.log('🔧 Attempting to change ticket stage via form...');
+            
+            // Look for stage/status controls in the form
+            const stageSelectors = [
+                'select[name="stage_id"]',
+                'select[name="stage"]',
+                'div[name="stage_id"]',
+                'div[name="stage"]',
+                '.o_field_widget[name="stage_id"]',
+                '.o_field_widget[name="stage"]'
+            ];
+            
+            for (const selector of stageSelectors) {
+                try {
+                    const field = this.page.locator(selector).first();
+                    if (await field.isVisible({ timeout: 3000 })) {
+                        console.log(`✅ Found stage field: ${selector}`);
+                        
+                        // If it's a select dropdown
+                        if (selector.includes('select')) {
+                            await field.selectOption({ label: 'Tickets' });
+                            console.log('✅ Selected "Tickets" from dropdown');
+                        } else {
+                            // If it's a div field, try clicking it to open dropdown
+                            await field.click();
+                            await this.page.waitForTimeout(500);
+                            
+                            // Try to click "Tickets" option
+                            const option = this.page.locator('li:has-text("Tickets"), .o_dropdown_item:has-text("Tickets")').first();
+                            if (await option.isVisible({ timeout: 2000 })) {
+                                await option.click();
+                                console.log('✅ Clicked "Tickets" option');
+                            }
+                        }
+                        
+                        // Save the form
+                        const saveSelectors = [
+                            'button[name="action_save"]', 
+                            'button:has-text("Save")', 
+                            '.o_form_button_save',
+                            'button[type="submit"]'
+                        ];
+                        
+                        for (const saveSel of saveSelectors) {
+                            try {
+                                const saveBtn = this.page.locator(saveSel).first();
+                                if (await saveBtn.isVisible({ timeout: 2000 })) {
+                                    await saveBtn.click();
+                                    console.log(`✅ Saved form using: ${saveSel}`);
+                                    break;
+                                }
+                            } catch (e) { /* ignore */ }
+                        }
+                        
+                        await this.page.waitForLoadState('networkidle');
+                        await this.page.waitForTimeout(2000);
+                        return true;
+                    }
+                } catch (e) { /* try next */ }
+            }
+            
+            return false;
+        } catch (error) {
+            console.log('⚠️ Stage change failed:', error.message);
+            return false;
+        }
+    }
+
+    async performDragOperation(sourceTicket, destinationSection) {
+        try {
+            console.log('🎯 Performing drag operation as fallback...');
+            
+            // Ensure source and destination are in view
+            await sourceTicket.scrollIntoViewIfNeeded();
+            await destinationSection.scrollIntoViewIfNeeded();
+            await this.page.waitForTimeout(300);
+
+            // Use Playwright's dragTo method
+            await sourceTicket.dragTo(destinationSection);
+            console.log('✅ Drag operation completed');
+            this.dragSuccess = true;
+            
+        } catch (error) {
+            console.log('⚠️ Drag operation failed:', error.message);
+            this.dragSuccess = false;
+        }
+    }
+
     async dragTicketToTicketsSection() {
         try {
             console.log('🎯 Starting drag operation: "Testing" from Resolved to Tickets...');
@@ -420,93 +510,29 @@ class EOXSTicketDragger {
                 throw new Error('Could not find Tickets section (destination)');
             }
             
-            // Perform drag and drop operation
-            console.log('🚀 Performing drag and drop operation...');
+            // Skip drag operations in headless mode and go straight to form-based stage change
+            console.log('🚀 Headless mode detected - using form-based stage change instead of drag...');
             
+            // Open the ticket card directly
             try {
-                // Ensure source and destination are in view
-                await sourceTicket.scrollIntoViewIfNeeded();
-                await destinationSection.scrollIntoViewIfNeeded();
-                await this.page.waitForTimeout(300);
-
-                // Method 1: Use Playwright's dragTo method
-                console.log('🎯 Attempting drag using dragTo method...');
-                await sourceTicket.dragTo(destinationSection);
-                console.log('✅ Drag operation completed using dragTo');
-                this.dragSuccess = true;
+                await sourceTicket.click();
+                await this.page.waitForLoadState('networkidle');
+                await this.page.waitForTimeout(2000);
+                console.log('✅ Opened ticket card for stage change');
                 
-            } catch (error) {
-                console.log('⚠️ dragTo method failed, trying manual drag...');
-                
-                try {
-                    // Method 2: Manual drag with mouse events (drag from header area)
-                    console.log('🎯 Attempting manual drag with mouse events...');
-                    
-                    const sourceBox = await sourceTicket.boundingBox();
-                    const destBox = await destinationSection.boundingBox();
-                    
-                    if (!sourceBox || !destBox) {
-                        throw new Error('Could not get bounding boxes for drag operation');
-                    }
-                    
-                    // Drag from near top-center of the card (header area)
-                    const sourceX = sourceBox.x + sourceBox.width / 2;
-                    const sourceY = sourceBox.y + Math.min(20, sourceBox.height / 4);
-                    const destX = destBox.x + destBox.width / 2;
-                    const destY = destBox.y + destBox.height / 2;
-                    
-                    console.log(`📍 Source position: (${sourceX}, ${sourceY})`);
-                    console.log(`📍 Destination position: (${destX}, ${destY})`);
-                    
-                    await this.page.mouse.move(sourceX, sourceY);
-                    await this.page.mouse.down();
-                    await this.page.waitForTimeout(300);
-                    // Small wiggle to initiate drag in some UIs
-                    await this.page.mouse.move(sourceX + 5, sourceY + 5);
-                    await this.page.waitForTimeout(150);
-                    await this.page.mouse.move(destX, destY, { steps: 15 });
-                    await this.page.waitForTimeout(300);
-                    await this.page.mouse.up();
-                    
-                    console.log('✅ Manual drag operation completed');
+                // Try to change stage via form
+                const stageChanged = await this.changeTicketStage();
+                if (stageChanged) {
+                    console.log('✅ Stage changed successfully via form');
                     this.dragSuccess = true;
-                    
-                } catch (error2) {
-                    console.log('⚠️ Manual drag failed, trying HTML5 drag...');
-                    
-                    try {
-                        // Method 3: HTML5 drag and drop using dynamic title selectors
-                        console.log('🎯 Attempting HTML5 drag and drop...');
-                        const dynamicSource = `.o_kanban_record:has-text("${CONFIG.dragOperation.ticketTitle}")`;
-                        const dynamicDest = `.o_kanban_group:has-text("Tickets")`;
-                        
-                        await this.page.evaluate(({ sourceSel, destSel }) => {
-                            const source = document.querySelector(sourceSel);
-                            const dest = document.querySelector(destSel);
-                            if (!source || !dest) {
-                                throw new Error('Source or destination not found for HTML5 drag');
-                            }
-                            source.scrollIntoView({ block: 'center' });
-                            dest.scrollIntoView({ block: 'center' });
-                            
-                            const dataTransfer = new DataTransfer();
-                            const dragStartEvent = new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer });
-                            const dropEvent = new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer });
-                            const dragEndEvent = new DragEvent('dragend', { bubbles: true, cancelable: true });
-                            
-                            source.dispatchEvent(dragStartEvent);
-                            dest.dispatchEvent(dropEvent);
-                            source.dispatchEvent(dragEndEvent);
-                        }, { sourceSel: dynamicSource, destSel: dynamicDest });
-                        
-                        console.log('✅ HTML5 drag operation completed');
-                        this.dragSuccess = true;
-                        
-                    } catch (error3) {
-                        console.error('❌ All drag methods failed:', error3);
-                        throw new Error('Could not perform drag operation');
-                    }
+                } else {
+                    console.log('⚠️ Form stage change failed, trying drag as fallback');
+                    // Fallback to drag if form change fails
+                    await this.performDragOperation(sourceTicket, destinationSection);
                 }
+            } catch (error) {
+                console.log('⚠️ Card click failed, trying drag operation...');
+                await this.performDragOperation(sourceTicket, destinationSection);
             }
             
             // Wait for any UI updates
