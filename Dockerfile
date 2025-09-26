@@ -40,7 +40,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD curl -f http://localhost:3000/health || exit 1
 
-# Start Xvfb and the server
-CMD Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset & \
-    sleep 2 && \
-    npm start
+# Start the server with xvfb-run
+CMD xvfb-run -a --server-args="-screen 0 1920x1080x24 -ac +extension GLX +render -noreset" npm start
