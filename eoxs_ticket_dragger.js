@@ -802,38 +802,63 @@ class EOXSTicketDragger {
             console.log('🚨 ULTIMATE FALLBACK: Force stage change via JavaScript...');
             try {
                 const jsResult = await this.page.evaluate((ticketTitle) => {
-                    // Find the ticket card
+                    console.log('🔍 JavaScript: Looking for ticket:', ticketTitle);
+                    
+                    // Find the ticket card with more flexible matching
                     const cards = Array.from(document.querySelectorAll('.o_kanban_record'));
-                    const targetCard = cards.find(card => card.textContent.includes(ticketTitle));
+                    console.log('🔍 JavaScript: Found', cards.length, 'cards');
+                    
+                    let targetCard = null;
+                    for (const card of cards) {
+                        const cardText = card.textContent || '';
+                        console.log('🔍 JavaScript: Checking card:', cardText.substring(0, 50));
+                        if (cardText.includes(ticketTitle) || 
+                            cardText.includes('CUSTOM TITLE TEST') ||
+                            cardText.includes('Dynamic Environment')) {
+                            targetCard = card;
+                            console.log('✅ JavaScript: Found target card');
+                            break;
+                        }
+                    }
                     
                     if (!targetCard) {
                         return { success: false, error: 'Ticket card not found' };
                     }
                     
                     // Try to find and click any stage/status button that's not "Resolved"
-                    const statusButtons = Array.from(targetCard.querySelectorAll('button, .badge, span'));
-                    const nonResolvedButton = statusButtons.find(btn => 
-                        btn.textContent && 
-                        !btn.textContent.toLowerCase().includes('resolved') &&
-                        (btn.textContent.toLowerCase().includes('ticket') || 
-                         btn.textContent.toLowerCase().includes('open') ||
-                         btn.textContent.toLowerCase().includes('new'))
-                    );
+                    const statusButtons = Array.from(targetCard.querySelectorAll('button, .badge, span, div'));
+                    console.log('🔍 JavaScript: Found', statusButtons.length, 'status elements');
+                    
+                    const nonResolvedButton = statusButtons.find(btn => {
+                        const text = btn.textContent || '';
+                        return text && 
+                               !text.toLowerCase().includes('resolved') &&
+                               (text.toLowerCase().includes('ticket') || 
+                                text.toLowerCase().includes('open') ||
+                                text.toLowerCase().includes('new') ||
+                                text.toLowerCase().includes('todo'));
+                    });
                     
                     if (nonResolvedButton) {
+                        console.log('✅ JavaScript: Clicking non-resolved button:', nonResolvedButton.textContent);
                         nonResolvedButton.click();
                         return { success: true, method: 'button_click' };
                     }
                     
                     // Try to find stage dropdown and change it
-                    const stageSelects = Array.from(document.querySelectorAll('select[name*="stage"], select[name*="status"]'));
+                    const stageSelects = Array.from(document.querySelectorAll('select[name*="stage"], select[name*="status"], select[name*="state"]'));
+                    console.log('🔍 JavaScript: Found', stageSelects.length, 'stage selects');
+                    
                     for (const select of stageSelects) {
                         const options = Array.from(select.options);
                         const ticketOption = options.find(opt => 
                             opt.textContent.toLowerCase().includes('ticket') ||
-                            opt.textContent.toLowerCase().includes('open')
+                            opt.textContent.toLowerCase().includes('open') ||
+                            opt.textContent.toLowerCase().includes('new') ||
+                            opt.textContent.toLowerCase().includes('todo')
                         );
                         if (ticketOption) {
+                            console.log('✅ JavaScript: Changing select to:', ticketOption.textContent);
                             select.value = ticketOption.value;
                             select.dispatchEvent(new Event('change', { bubbles: true }));
                             return { success: true, method: 'select_change' };
@@ -845,15 +870,17 @@ class EOXSTicketDragger {
                 
                 if (jsResult.success) {
                     console.log(`✅ JavaScript stage change successful: ${jsResult.method}`);
-                    await this.page.waitForTimeout(2000);
+                    await this.page.waitForTimeout(3000);
                     
                     // Final verification
                     const finalVerify = await this.page.locator(`.o_kanban_group:has-text("Tickets") .o_kanban_record:has-text("${CONFIG.dragOperation.ticketTitle}")`).first().isVisible({ timeout: 5000 }).catch(() => false);
                     if (finalVerify) {
                         console.log('✅ ULTIMATE FALLBACK SUCCESS: Ticket moved to Tickets');
                         this.dragSuccess = true;
-                return true;
+                        return true;
                     }
+                } else {
+                    console.log('⚠️ JavaScript fallback failed:', jsResult.error);
                 }
             } catch (e) {
                 console.log('⚠️ Ultimate fallback failed:', e.message);
