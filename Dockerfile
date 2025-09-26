@@ -1,14 +1,6 @@
 # Use Node.js 18 with Playwright dependencies
 FROM mcr.microsoft.com/playwright:v1.44.0-jammy
 
-# Install Xvfb and other dependencies for virtual display
-RUN apt-get update && apt-get install -y \
-    xvfb \
-    x11-utils \
-    x11-xserver-utils \
-    xauth \
-    && rm -rf /var/lib/apt/lists/*
-
 # Set working directory
 WORKDIR /app
 
@@ -29,9 +21,8 @@ RUN mkdir -p /app/screenshots
 
 # Set environment variables
 ENV NODE_ENV=production
-ENV HEADLESS=false
+ENV HEADLESS=true
 ENV PORT=3000
-ENV DISPLAY=:99
 
 # Expose port
 EXPOSE 3000
@@ -40,5 +31,5 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
   CMD curl -f http://localhost:3000/health || exit 1
 
-# Start the server with xvfb-run
-CMD xvfb-run -a --server-args="-screen 0 1920x1080x24 -ac +extension GLX +render -noreset" npm start
+# Start the server
+CMD ["npm", "start"]
