@@ -707,10 +707,71 @@ class EOXSTicketDragger {
                 if (finalCheck) {
                     console.log('✅ SUCCESS after refresh: ticket is now in Tickets section');
                     this.dragSuccess = true;
-                return true;
+                    return true;
                 }
             } catch (e) {
                 console.log('⚠️ Final refresh check failed');
+            }
+
+            // Ultimate fallback: Force stage change via JavaScript
+            console.log('🚨 ULTIMATE FALLBACK: Force stage change via JavaScript...');
+            try {
+                const jsResult = await this.page.evaluate((ticketTitle) => {
+                    // Find the ticket card
+                    const cards = Array.from(document.querySelectorAll('.o_kanban_record'));
+                    const targetCard = cards.find(card => card.textContent.includes(ticketTitle));
+                    
+                    if (!targetCard) {
+                        return { success: false, error: 'Ticket card not found' };
+                    }
+                    
+                    // Try to find and click any stage/status button that's not "Resolved"
+                    const statusButtons = Array.from(targetCard.querySelectorAll('button, .badge, span'));
+                    const nonResolvedButton = statusButtons.find(btn => 
+                        btn.textContent && 
+                        !btn.textContent.toLowerCase().includes('resolved') &&
+                        (btn.textContent.toLowerCase().includes('ticket') || 
+                         btn.textContent.toLowerCase().includes('open') ||
+                         btn.textContent.toLowerCase().includes('new'))
+                    );
+                    
+                    if (nonResolvedButton) {
+                        nonResolvedButton.click();
+                        return { success: true, method: 'button_click' };
+                    }
+                    
+                    // Try to find stage dropdown and change it
+                    const stageSelects = Array.from(document.querySelectorAll('select[name*="stage"], select[name*="status"]'));
+                    for (const select of stageSelects) {
+                        const options = Array.from(select.options);
+                        const ticketOption = options.find(opt => 
+                            opt.textContent.toLowerCase().includes('ticket') ||
+                            opt.textContent.toLowerCase().includes('open')
+                        );
+                        if (ticketOption) {
+                            select.value = ticketOption.value;
+                            select.dispatchEvent(new Event('change', { bubbles: true }));
+                            return { success: true, method: 'select_change' };
+                        }
+                    }
+                    
+                    return { success: false, error: 'No stage change method found' };
+                }, CONFIG.dragOperation.ticketTitle);
+                
+                if (jsResult.success) {
+                    console.log(`✅ JavaScript stage change successful: ${jsResult.method}`);
+                    await this.page.waitForTimeout(2000);
+                    
+                    // Final verification
+                    const finalVerify = await this.page.locator(`.o_kanban_group:has-text("Tickets") .o_kanban_record:has-text("${CONFIG.dragOperation.ticketTitle}")`).first().isVisible({ timeout: 5000 }).catch(() => false);
+                    if (finalVerify) {
+                        console.log('✅ ULTIMATE FALLBACK SUCCESS: Ticket moved to Tickets');
+                        this.dragSuccess = true;
+                        return true;
+                    }
+                }
+            } catch (e) {
+                console.log('⚠️ Ultimate fallback failed:', e.message);
             }
 
             console.log(`❌ FAILED: Could not move "${CONFIG.dragOperation.ticketTitle}" to Tickets section`);
